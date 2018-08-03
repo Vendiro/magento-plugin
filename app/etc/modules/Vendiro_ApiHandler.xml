@@ -1,0 +1,8 @@
+<config>
+  <modules>
+    <Vendiro_ApiHandler>
+      <active>true</active>
+      <codePool>local</codePool>
+    </Vendiro_ApiHandler>
+  </modules>
+</config>
