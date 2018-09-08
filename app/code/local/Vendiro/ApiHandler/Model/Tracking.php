@@ -71,7 +71,8 @@ class Vendiro_ApiHandler_Model_Tracking extends Mage_Core_Model_Abstract
                     "Accept: application/json",
                     "Authorization: Basic " . base64_encode($apiData['key'].':'.$apiData['token']),
                     "Cache-Control: no-cache",
-                    "Content-Type: application/json;"
+                    "Content-Type: application/json;",
+                    "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
                 ],
             ]);
 
@@ -150,7 +151,8 @@ class Vendiro_ApiHandler_Model_Tracking extends Mage_Core_Model_Abstract
                         "Authorization: Basic ". base64_encode($apiData['key'].':'.$apiData['token']),
                         "Cache-Control: no-cache",
                         "Content-Type: application/json; charset=UTF-8",
-                        "Content-Length: " . strlen($dataJson)
+                        "Content-Length: " . strlen($dataJson),
+                        "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
                     ],
                 ]);
 

@@ -9,6 +9,14 @@ class Vendiro_ApiHandler_Helper_Data extends Mage_Core_Helper_Abstract
     protected $carriers;
 
     /**
+     * @return string
+     */
+    public function getModuleVersion()
+    {
+        return (string)Mage::getConfig()->getNode('modules/Vendiro_ApiHandler/version');
+    }
+
+    /**
      * @return bool
      */
     public function isEnabled()

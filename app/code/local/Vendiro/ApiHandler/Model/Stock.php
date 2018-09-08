@@ -47,8 +47,6 @@ class Vendiro_ApiHandler_Model_Stock extends Mage_Core_Model_Abstract
      */
     public function addProductToQueue($productIds)
     {
-        $data = [];
-
         if (empty($productIds)) {
             return;
         }
@@ -57,16 +55,17 @@ class Vendiro_ApiHandler_Model_Stock extends Mage_Core_Model_Abstract
 
         foreach ($productIds as $productId) {
             if (!in_array($productId, $productIdsInQueue)) {
-                $data[] = [
+                $data = [
                     'product_id' => (int)$productId
                 ];
+
+                $this->resource->getConnection('core_write')->insertOnDuplicate(
+                    $this->resource->getTableName('vendiro_product_stock_updated'),
+                    $data,
+                    array_keys($data)
+                );
             }
         }
-
-        $this->resource->getConnection('core_write')->insertMultiple(
-            $this->resource->getTableName('vendiro_product_stock_updated'),
-            $data
-        );
     }
 
     /**
@@ -158,7 +157,8 @@ class Vendiro_ApiHandler_Model_Stock extends Mage_Core_Model_Abstract
                     "Authorization: Basic ". base64_encode($apiData['key'].':'.$apiData['token']),
                     "Cache-Control: no-cache",
                     "Content-Type: application/json; charset=UTF-8",
-                    "Content-Length: " . strlen($productDataJson)
+                    "Content-Length: " . strlen($productDataJson),
+                    "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
                 ],
             ]);
 

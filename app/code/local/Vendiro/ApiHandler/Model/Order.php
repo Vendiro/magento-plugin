@@ -54,7 +54,8 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
                     "Accept: application/json",
                     "Authorization: Basic " . base64_encode($this->apiData['key'].':'.$this->apiData['token']),
                     "Cache-Control: no-cache",
-                    "Content-Type: application/json;"
+                    "Content-Type: application/json;",
+                    "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
                 ],
             ]);
 
@@ -97,13 +98,13 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
 
         foreach ($orders as $order) {
             try {
-                if(isset($this->existingOrders[$order->marketplace_order_id])) {
+                if(!$order || !is_object($order) || isset($this->existingOrders[$order->id])) {
                     return false;
                 }
 
                 $store = Mage::getModel('core/store')->load($order->marketplace->reference, 'code');
 
-                if(!$store) {
+                if(!$store->getId()) {
                     throw new Exception('Not able to find store with the storecode ' . $order->marketplace->reference);
                 }
 
@@ -124,12 +125,15 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
                 $quote->setIsActive(false)->save();
                 $_order = $service->getOrder()->save();
 
-                $shippingAmount = $order->shipping_cost + $order->administration_cost;
-                $_order->setShippingAmount($shippingAmount);
-                $_order->setBaseShippingAmount($shippingAmount);
+                $this->addShippingAmountToOrder($_order, $order, $store);
 
                 $_order->setBaseGrandTotal($order->order_value);
                 $_order->setGrandTotal($order->order_value);
+
+                $_order->setBaseCurrencyCode($order->currency);
+                $_order->setGlobalCurrencyCode($order->currency);
+                $_order->setStoreCurrencyCode($order->currency);
+                $_order->setOrderCurrencyCode($order->currency);
 
                 $orderStatus = $order->fulfilment_by_marketplace == 'true' ?  'complete' : 'processing';
 
@@ -144,6 +148,9 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
                     ->save();
 
                 $this->createInvoice($_order);
+
+                $_order->setData('state', $orderStatus);
+                $_order->save();
 
                 unset($quote);
                 unset($service);
@@ -208,6 +215,50 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
         }
 
         return $existingOrders;
+    }
+
+
+    /**
+     * @param $_order
+     * @param $order
+     * @param $store
+     * @throws Exception
+     */
+    public function addShippingAmountToOrder(&$_order, $order, $store)
+    {
+        if(!$_order || !$order || !$store) {
+            throw new Exception('Not able to add shipping amount to the order');
+        }
+
+        $shippingAmount = $order->shipping_cost + $order->administration_cost;
+        $taxId = Mage::getStoreConfig('tax/classes/shipping_tax_class', $store->getId());
+        $percent = $this->getTax($_order->getShippingAddress(), $_order->getBillingAddress(), $store, $taxId);
+        $shippingPriceCal = round(($shippingAmount / (100 + $percent) * 100), 2);
+        $shippingPriceTaxCal = round($shippingAmount - $shippingPriceCal, 2);
+        $orderTaxAmount = round($_order->getTaxAmount()+$shippingPriceTaxCal, 2);
+
+        $_order->setBaseTaxAmount($orderTaxAmount);
+        $_order->setTaxAmount($orderTaxAmount);
+        $_order->setBaseShippingTaxAmount($shippingPriceTaxCal);
+        $_order->setShippingTaxAmount($shippingPriceTaxCal);
+        $_order->setShippingAmount($shippingPriceCal);
+        $_order->setBaseShippingAmount($shippingPriceCal);
+        $_order->setBaseShippingInclTax($shippingAmount);
+        $_order->setShippingInclTax($shippingAmount);
+    }
+
+    /**
+     * @param $shippingAddress
+     * @param $billingAddress
+     * @param $store
+     * @param $taxId
+     * @return mixed
+     */
+    public function getTax($shippingAddress, $billingAddress, $store, $taxId)
+    {
+        $taxCalculation = Mage::getSingleton('tax/calculation');
+        $request = $taxCalculation->getRateRequest($shippingAddress, $billingAddress, null, $store);
+        return $taxCalculation->getRate($request->setProductClassId($taxId));
     }
 
     /**
@@ -286,6 +337,7 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
 
         $replaceKeys = array(
             "name"  =>  "firstname",
+            "name2"  =>  "company",
             "postalcode"    =>  "postcode",
             "country"   =>  "country_id",
             "phone" =>  "telephone"
@@ -306,6 +358,11 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
         $address['telephone'] = isset($address['telephone']) ? $address['telephone'] : '-';
         $address['region'] = '';
         $address['region_id'] = '';
+
+        if (isset($address['street2'])) {
+            $address['street'] = $address['street'] . "\n" . $address['street2'];
+        }
+
         return $address;
     }
 
@@ -333,7 +390,8 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
                     "Authorization: Basic " . base64_encode($this->apiData['key'].':'.$this->apiData['token']),
                     "Cache-Control: no-cache",
                     "Content-Type: application/json;",
-                    "Content-Length: " . strlen($dataJson)
+                    "Content-Length: " . strlen($dataJson),
+                    "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
                 ],
             ]);
 
@@ -349,8 +407,8 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
                 throw new Exception('Error by pushing order data to Vendiro API order accept: '.$err);
             }
 
-            if ($httpStatus != 201 &&  $httpStatus != 422) {
-                throw new Exception('Error by pushing order data to Vendiro API order accept: wrong http status ' . $httpStatus . ' it should be 201 or 422');
+            if ($httpStatus != 204 &&  $httpStatus != 422) {
+                throw new Exception('Error by pushing order data to Vendiro API order accept: wrong http status ' . $httpStatus . ' it should be 204 or 422');
             }
 
             return true;
