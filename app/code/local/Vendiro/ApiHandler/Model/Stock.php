@@ -59,11 +59,15 @@ class Vendiro_ApiHandler_Model_Stock extends Mage_Core_Model_Abstract
                     'product_id' => (int)$productId
                 ];
 
-                $this->resource->getConnection('core_write')->insertOnDuplicate(
-                    $this->resource->getTableName('vendiro_product_stock_updated'),
-                    $data,
-                    array_keys($data)
-                );
+                try {
+                    $this->resource->getConnection('core_write')->insertOnDuplicate(
+                        $this->resource->getTableName('vendiro_product_stock_updated'),
+                        $data,
+                        ['product_id']
+                    );
+                } catch (Exception $e) {
+                    Mage::logException($e);
+                }
             }
         }
     }
@@ -112,6 +116,10 @@ class Vendiro_ApiHandler_Model_Stock extends Mage_Core_Model_Abstract
 
         /** @var Mage_Catalog_Model_Product $product */
         foreach ($collection as $product) {
+            if(!$product->getStockItem()) {
+                continue;
+            }
+
             $data[] = [
                 'sku' => $product->getSku(),
                 'stock' => (int) $product->getStockItem()->getQty()

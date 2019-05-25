@@ -98,8 +98,13 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
 
         foreach ($orders as $order) {
             try {
-                if(!$order || !is_object($order) || isset($this->existingOrders[$order->id])) {
-                    return false;
+                if(!$order || !is_object($order)){
+                    continue;
+                }
+                
+                if (isset($this->existingOrders[$order->id])) {
+                    $this->acceptOrderToApi($order->id, $this->existingOrders[$order->id]);
+                    continue;
                 }
 
                 $store = Mage::getModel('core/store')->load($order->marketplace->reference, 'code');
@@ -159,6 +164,7 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
 
             } catch (Exception $e) {
                 Mage::logException($e);
+                $this->logErrorToApi($order->id, $e->getMessage());
             }
         }
     }
@@ -206,12 +212,13 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
         $orderCollection = Mage::getModel('sales/order')
             ->getCollection()
             ->addAttributeToSelect('vendiro_id')
+            ->addAttributeToSelect('increment_id')
             ->addAttributeToFilter('vendiro_id', array('notnull' => true));
 
         $existingOrders = array();
 
         foreach($orderCollection->getItems() as $order) {
-            $existingOrders[$order->getVendiroId()] = $order->getVendiroId();
+            $existingOrders[$order->getVendiroId()] = $order->getIncrementId();
         }
 
         return $existingOrders;
@@ -354,7 +361,6 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
             }
         }
 
-        $address['lastname'] = '&nbsp;';
         $address['telephone'] = isset($address['telephone']) ? $address['telephone'] : '-';
         $address['region'] = '';
         $address['region_id'] = '';
@@ -409,6 +415,58 @@ class Vendiro_ApiHandler_Model_Order extends Mage_Core_Model_Abstract
 
             if ($httpStatus != 204 &&  $httpStatus != 422) {
                 throw new Exception('Error by pushing order data to Vendiro API order accept: wrong http status ' . $httpStatus . ' it should be 204 or 422');
+            }
+
+            return true;
+
+        } catch (Exception $e) {
+            Mage::logException($e);
+        }
+    }
+
+
+    /**
+     * @param $apiOrderId
+     * @param $reason
+     * @return bool
+     */
+    public function logErrorToApi($apiOrderId, $reason)
+    {
+        try {
+            $curl = curl_init();
+            $dataJson = json_encode(array('reason' => $reason));
+
+            curl_setopt_array($curl, [
+                CURLOPT_URL => $this->apiData['url'] . '/client/orders/' . $apiOrderId . '/reject',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_MAXREDIRS => 10,
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                CURLOPT_CUSTOMREQUEST => "PUT",
+                CURLOPT_HTTPHEADER => [
+                    "Accept: application/json",
+                    "Authorization: Basic " . base64_encode($this->apiData['key'].':'.$this->apiData['token']),
+                    "Cache-Control: no-cache",
+                    "Content-Type: application/json;",
+                    "Content-Length: " . strlen($dataJson),
+                    "User-Agent: VendiroMagentoPlugin/" . $this->helper->getModuleVersion()
+                ],
+            ]);
+
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $dataJson);
+
+            $response = curl_exec($curl);
+            $httpStatus = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $err = curl_error($curl);
+
+            curl_close($curl);
+
+            if ($err) {
+                throw new Exception('Error by pushing order data to Vendiro API order reject: '.$err);
+            }
+
+            if ($httpStatus != 204 &&  $httpStatus != 422) {
+                throw new Exception('Error by pushing order data to Vendiro API order reject: wrong http status ' . $httpStatus . ' it should be 204 or 422');
             }
 
             return true;
